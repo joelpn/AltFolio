@@ -1,0 +1,7 @@
+{
+  "comision_gbm_pct": 0.25,
+  "spread_sic_pct": 0.50,
+  "limite_minimo_titulos": 1,
+  "moneda_base": "MXN",
+  "intervalo_actualizacion_precios_seg": 60
+}
