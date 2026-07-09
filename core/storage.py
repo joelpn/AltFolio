@@ -98,15 +98,6 @@ def registrar_evento(tipo, ticker=None, titulos=None, precio_unitario=None,
     conn.close()
 
 
-def obtener_eventos(limit=50):
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM eventos ORDER BY timestamp DESC LIMIT ?", (limit,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
 def guardar_precio_cache(ticker, precio_mxn):
     conn = get_connection()
     conn.execute("""
@@ -171,16 +162,6 @@ def buscar_importacion_por_hash(file_hash: str):
     conn = get_connection()
     row = conn.execute(
         "SELECT * FROM imported_statements WHERE file_hash = ?", (file_hash,)
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def buscar_importacion_por_mes(account: str, month_label: str):
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT * FROM imported_statements WHERE account = ? AND month_label = ?",
-        (account, month_label),
     ).fetchone()
     conn.close()
     return dict(row) if row else None

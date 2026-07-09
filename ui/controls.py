@@ -53,8 +53,8 @@ def build_import_panel(page: ft.Page, on_import_file, status_callback=None):
     def pick_file(e):
         file_picker.pick_files(
             allow_multiple=True,
-            allowed_extensions=["pdf"],
-            dialog_title="Seleccionar estados de cuenta GBM (máx 12)",
+            allowed_extensions=["pdf", "xlsx"],
+            dialog_title="Seleccionar PDF (estado cuenta) o XLSX (posición actual)",
         )
 
     panel = ft.Container(

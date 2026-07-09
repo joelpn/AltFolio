@@ -1,8 +1,5 @@
-from dotenv import load_dotenv
 import flet as ft
 from ui.dashboard import build_dashboard
-
-load_dotenv()
 
 
 def main(page: ft.Page):

@@ -24,10 +24,14 @@ class Simulador:
         self.config = _cargar_config()
         self.efectivo_ficticio = snapshot["capital_ficticio_disponible_mxn"]
         self.posiciones = {}
+        _TICKER_CORRECT = {"BABAN": ("BABA", "BABA")}
         for p in snapshot["posiciones"]:
             ticker = p["ticker"]
+            yahoo = p.get("ticker_yahoo", ticker)
+            if ticker in _TICKER_CORRECT:
+                ticker, yahoo = _TICKER_CORRECT[ticker]
             self.posiciones[ticker] = {
-                "ticker_yahoo": p["ticker_yahoo"],
+                "ticker_yahoo": yahoo,
                 "tipo": p["tipo"],
                 "titulos": p["titulos"],
                 "precio_promedio_mxn": p.get("precio_promedio_mxn"),
@@ -74,7 +78,7 @@ class Simulador:
             tipo="INYECCION",
             monto_total=monto,
             efectivo_post=self.efectivo_ficticio,
-            notas=f"Inyección de ${monto:,.2f} MXN",
+            notas=f"Inyeccion de ${monto:,.2f} MXN",
         )
 
     def simular_compra(self, ticker, titulos, precio_unitario):
@@ -94,7 +98,7 @@ class Simulador:
             pos["titulos"] = total_titulos
         else:
             self.posiciones[ticker] = {
-                "ticker_yahoo": ticker,
+                "ticker_yahoo": self._yahoo_ticker(ticker),
                 "tipo": "SIC",
                 "titulos": titulos,
                 "precio_promedio_mxn": precio_unitario,
@@ -114,11 +118,11 @@ class Simulador:
 
     def simular_venta(self, ticker, titulos, precio_unitario):
         if ticker not in self.posiciones:
-            return {"error": "Posición no encontrada"}
+            return {"error": "Posicion no encontrada"}
 
         pos = self.posiciones[ticker]
         if pos["titulos"] < titulos:
-            return {"error": "Títulos insuficientes"}
+            return {"error": "Titulos insuficientes"}
 
         comision = self.config["comision_gbm_pct"] / 100
         precio_prom = pos["precio_promedio_mxn"] or 0
@@ -138,7 +142,29 @@ class Simulador:
             precio_unitario=precio_unitario,
             monto_total=ingreso,
             efectivo_post=self.efectivo_ficticio,
-            notas=f"Ganancia/Pérdida: ${ganancia:,.2f} MXN",
+            notas=f"Ganancia/Perdida: ${ganancia:,.2f} MXN",
         )
 
         return {"ingreso": ingreso, "ganancia": ganancia, "posiciones_restantes": pos.get("titulos", 0)}
+
+    def _yahoo_ticker(self, ticker):
+        known = {
+            "FMTY14": "FMTY14.MX", "FUNO11": "FUNO11.MX",
+            "FIPRA14": "FIPRA14.MX", "IVVPESO": "IVVPESO.MX",
+            "BABAN": "BABA",
+        }
+        if ticker in known:
+            return known[ticker]
+        # Si ya tiene sufijo conocido, devolverlo
+        if any(ticker.endswith(s) for s in [".MX", "=X"]):
+            return ticker
+        # Buscar en posiciones existentes el yahoo_ticker
+        for info in self.posiciones.values():
+            if info.get("ticker_yahoo", "").upper() == ticker or info.get("ticker_yahoo", "").upper() == ticker + ".MX":
+                return info["ticker_yahoo"]
+            if info.get("ticker_yahoo", "").upper().startswith(ticker + "."):
+                return info["ticker_yahoo"]
+        # Si no hay coincidencia, asumir .MX (nacional)
+        return ticker + ".MX"
+
+

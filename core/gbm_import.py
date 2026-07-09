@@ -5,13 +5,13 @@ import subprocess
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
-def _clean_ticker(ticker: str) -> tuple[str, str, str]:
+def _clean_ticker(ticker: str, es_sic: bool = False) -> tuple[str, str, str]:
     t = ticker.upper()
     if t.startswith("1"):
         t = t[1:]
     if t.endswith("*"):
         t = t[:-1]
-    
+
     if "FMTY" in t:
         return "FMTY14", "FIBRA", "FMTY14.MX"
     if "FUNO" in t:
@@ -20,7 +20,11 @@ def _clean_ticker(ticker: str) -> tuple[str, str, str]:
         return "FIPRA14", "FIBRA", "FIPRA14.MX"
     if "IVVPESO" in t:
         return "IVVPESO", "ETF", "IVVPESO.MX"
-    
+
+    if es_sic:
+        _SIC_MAP = {"BABAN": "BABA"}
+        t = _SIC_MAP.get(t, t)
+        return t, "SIC", t
     return t, "ACCION", f"{t}.MX"
 
 
@@ -80,7 +84,7 @@ def _parse_period(text: str) -> tuple[str, str, str]:
     return month_label, period_start, period_end
 
 
-def _parse_posiciones_table(lines: list[str]) -> list[dict]:
+def _parse_posiciones_table(lines: list[str], es_sic: bool = False) -> list[dict]:
     posiciones = []
     for line in lines:
         stripped = line.strip()
@@ -113,7 +117,7 @@ def _parse_posiciones_table(lines: list[str]) -> list[dict]:
         costo_total = _parse_decimal(data_vals[4][0])
         valor_mercado = _parse_decimal(data_vals[7][0])
 
-        ticker, tipo, yahoo = _clean_ticker(ticker_name)
+        ticker, tipo, yahoo = _clean_ticker(ticker_name, es_sic=es_sic)
 
         pos = {
             "ticker": ticker,
@@ -210,6 +214,7 @@ def parse_pdf(filepath: str) -> dict | None:
             break
 
     accion_lines = []
+    sic_lines = []
     deuda_lines = []
     current_section = None
 
@@ -234,10 +239,13 @@ def parse_pdf(filepath: str) -> dict | None:
 
         if current_section == "DEUDA":
             deuda_lines.append(stripped)
-        elif current_section in ("NACIONAL", "SIC"):
+        elif current_section == "SIC":
+            sic_lines.append(stripped)
+        elif current_section == "NACIONAL":
             accion_lines.append(stripped)
 
     posiciones = _parse_posiciones_table(accion_lines)
+    posiciones += _parse_posiciones_table(sic_lines, es_sic=True)
     posiciones += _parse_deuda_lines(deuda_lines)
 
     if not posiciones:
@@ -260,13 +268,89 @@ def parse_pdf(filepath: str) -> dict | None:
     }
 
 
+def import_excel(filepath: str) -> dict:
+    """Importa un archivo Excel (.xlsx) de GBM con la posición actual."""
+    import pandas as pd
+    try:
+        df = pd.read_excel(filepath)
+    except Exception as ex:
+        return {"error": f"No se pudo leer el Excel: {ex}"}
+
+    df.columns = [str(c).strip().upper() for c in df.columns]
+    posibles_ticker = ["TICKER", "SIMBOLO", "EMISORA", "INSTRUMENTO", "CLAVE"]
+    posibles_titulos = ["TITULOS", "CANTIDAD", "QTY", "CANT", "POSICION"]
+    posibles_precio = ["PRECIO PROMEDIO", "PRECIO PROM", "PRECIO PROMEDIO MXN",
+                       "COSTO PROMEDIO", "P.PROMEDIO", "PP"]
+    posibles_efectivo = ["EFECTIVO", "DISPONIBLE", "CAJA", "SALDO"]
+
+    col_ticker = next((c for c in df.columns if any(p in c for p in posibles_ticker)), None)
+    col_titulos = next((c for c in df.columns if any(p in c for p in posibles_titulos)), None)
+    col_precio = next((c for c in df.columns if any(p in c for p in posibles_precio)), None)
+
+    if not col_ticker or not col_titulos:
+        return {"error": f"No se encontraron columnas de ticker/títulos en el Excel. "
+                         f"Columnas detectadas: {list(df.columns)}"}
+
+    posiciones = []
+    for _, row in df.iterrows():
+        ticker = str(row[col_ticker]).strip().upper()
+        if not ticker or ticker == "NAN" or pd.isna(row[col_ticker]):
+            continue
+        try:
+            titulos = int(float(row[col_titulos]))
+        except (ValueError, TypeError):
+            continue
+        if titulos <= 0:
+            continue
+        precio = float(row[col_precio]) if col_precio and pd.notna(row.get(col_precio)) else 0.0
+
+        es_sic = ticker.endswith("*") or ticker.startswith("1") or any(
+            kw in ticker for kw in ["UBER", "AAPL", "MSFT", "GOOGL", "META", "NVDA", "TSLA"]
+        )
+        ticker_clean, tipo, ticker_yahoo = _clean_ticker(ticker, es_sic=es_sic)
+
+        posiciones.append({
+            "ticker": ticker_clean,
+            "ticker_yahoo": ticker_yahoo,
+            "tipo": tipo,
+            "titulos": titulos,
+            "precio_promedio_mxn": round(precio, 6),
+            "costo_total_mxn": round(titulos * precio, 2),
+        })
+
+    if not posiciones:
+        return {"error": "No se pudieron extraer posiciones del Excel"}
+
+    efectivo_col = next((c for c in df.columns if any(p in c for p in posibles_efectivo)), None)
+    efectivo = float(df[efectivo_col].iloc[0]) if efectivo_col else 0.0
+
+    total_pos = sum(p["costo_total_mxn"] for p in posiciones)
+    hoy = date.today()
+    month_label = hoy.strftime("%Y-%m")
+    period_start = hoy.replace(day=1).isoformat()
+    period_end = hoy.isoformat()
+
+    return {
+        "fecha_snapshot": hoy.isoformat(),
+        "efectivo_mxn": round(efectivo, 2),
+        "posiciones": posiciones,
+        "capital_ficticio_disponible_mxn": round(total_pos + efectivo, 2),
+        "cuenta": "GBM",
+        "_month_label": month_label,
+        "_period_start": period_start,
+        "_period_end": period_end,
+    }
+
+
 def import_file(filepath: str) -> dict:
     ext = os.path.splitext(filepath)[1].lower()
 
     if ext == ".pdf":
         result = parse_pdf(filepath)
+    elif ext in (".xlsx", ".xls"):
+        result = import_excel(filepath)
     else:
-        return {"error": f"Formato no soportado: {ext}. Solo se admite .pdf"}
+        return {"error": f"Formato no soportado: {ext}. Solo se admite .pdf y .xlsx"}
 
     if result is None:
         return {"error": "No se pudo procesar el archivo"}
