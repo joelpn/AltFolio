@@ -16,6 +16,9 @@ for _logger in ("yfinance", "yfinance.ticker", "yfinance.utils",
 
 TICKERS_INVALIDOS: set[str] = set()
 
+TIPO_CAMBIO_CACHE: dict = {"rate": None, "timestamp": 0.0}
+CACHE_TTL = 300  # 5 minutos
+
 _RUTA_EXCLUIDOS = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "data", "tickers_excluidos.json",
@@ -54,6 +57,34 @@ def _call_silent(fn, *args, **kwargs):
         return fn(*args, **kwargs)
 
 
+def _es_sic(ticker_yahoo: str) -> bool:
+    """Detecta si un ticker de Yahoo Finance es SIC (cotiza en USD)."""
+    if ticker_yahoo.endswith(".MX") or ticker_yahoo.endswith("=X"):
+        return False
+    return True
+
+
+def _obtener_tipo_cambio() -> float:
+    """Devuelve USD/MXN, cachead0 5 min."""
+    import time
+    ahora = time.time()
+    if TIPO_CAMBIO_CACHE["rate"] is not None and (ahora - TIPO_CAMBIO_CACHE["timestamp"]) < CACHE_TTL:
+        return TIPO_CAMBIO_CACHE["rate"]
+    try:
+        mxn = yf.Ticker("MXN=X")
+        hist = _call_silent(mxn.history, period="1d")
+        if not hist.empty:
+            rate = float(hist["Close"].iloc[-1])
+        else:
+            hist = _call_silent(mxn.history, period="5d")
+            rate = float(hist["Close"].iloc[-1]) if not hist.empty else 20.0
+    except Exception:
+        rate = 20.0
+    TIPO_CAMBIO_CACHE["rate"] = rate
+    TIPO_CAMBIO_CACHE["timestamp"] = ahora
+    return rate
+
+
 def obtener_precio(ticker_yahoo):
     if ticker_yahoo in TICKERS_INVALIDOS:
         raise ValueError(f"Ticker inválido: {ticker_yahoo}")
@@ -61,7 +92,10 @@ def obtener_precio(ticker_yahoo):
     for period in ("1d", "5d", "1mo"):
         hist = _call_silent(ticker.history, period=period)
         if not hist.empty:
-            return float(hist["Close"].iloc[-1])
+            px = float(hist["Close"].iloc[-1])
+            if _es_sic(ticker_yahoo):
+                px *= _obtener_tipo_cambio()
+            return px
     raise ValueError(f"No se pudo obtener precio para {ticker_yahoo}")
 
 
@@ -77,6 +111,11 @@ def obtener_multiples_precios(tickers, batch=True):
             data = _call_silent(
                 yf.download, tickers_validos, period="1d", progress=False,
             )
+            sic_tickers = [t for t in tickers if _es_sic(t)]
+            if sic_tickers:
+                tc = _obtener_tipo_cambio()
+            else:
+                tc = 1.0
             if "Close" in data.columns:
                 for t in tickers:
                     try:
@@ -84,6 +123,8 @@ def obtener_multiples_precios(tickers, batch=True):
                         result[t] = float(val) if not pd.isna(val) else None
                         if result[t] is not None and t in fallback:
                             fallback.remove(t)
+                        if result[t] is not None and _es_sic(t):
+                            result[t] *= tc
                     except (IndexError, KeyError):
                         result[t] = None
             elif not data.empty:
@@ -93,6 +134,8 @@ def obtener_multiples_precios(tickers, batch=True):
                         result[t] = float(val) if not pd.isna(val) else None
                         if result[t] is not None and t in fallback:
                             fallback.remove(t)
+                        if result[t] is not None and _es_sic(t):
+                            result[t] *= tc
                     except (IndexError, KeyError):
                         result[t] = None
             else:
@@ -121,8 +164,10 @@ def obtener_historial(ticker_yahoo, periodo="1mo"):
     hist = _call_silent(ticker.history, period=periodo)
     if hist.empty:
         return []
+    es_sic = _es_sic(ticker_yahoo)
+    tc = _obtener_tipo_cambio() if es_sic else 1.0
     return [
-        {"fecha": str(idx.date()), "close": float(row["Close"]), "volume": int(row["Volume"])}
+        {"fecha": str(idx.date()), "close": float(row["Close"]) * tc, "volume": int(row["Volume"])}
         for idx, row in hist.iterrows()
     ]
 

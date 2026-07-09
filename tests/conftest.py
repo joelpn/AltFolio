@@ -102,7 +102,9 @@ def sample_snapshot() -> dict:
 
 
 @pytest.fixture(autouse=True)
-def _limpiar_tickers_invalidos():
-    """Limpia TICKERS_INVALIDOS antes de cada test para evitar contaminación."""
-    from core.market import TICKERS_INVALIDOS
+def _limpiar_estado_global():
+    """Limpia estado global de market antes de cada test."""
+    from core.market import TICKERS_INVALIDOS, TIPO_CAMBIO_CACHE
     TICKERS_INVALIDOS.clear()
+    TIPO_CAMBIO_CACHE["rate"] = None
+    TIPO_CAMBIO_CACHE["timestamp"] = 0.0

@@ -11,10 +11,14 @@ from core import market
 
 
 @pytest.fixture(autouse=True)
-def reset_tickers_invalidos():
+def reset_estado_global():
     market.TICKERS_INVALIDOS.clear()
+    market.TIPO_CAMBIO_CACHE["rate"] = None
+    market.TIPO_CAMBIO_CACHE["timestamp"] = 0.0
     yield
     market.TICKERS_INVALIDOS.clear()
+    market.TIPO_CAMBIO_CACHE["rate"] = None
+    market.TIPO_CAMBIO_CACHE["timestamp"] = 0.0
 
 
 # ============= obtener_precio =============
@@ -80,6 +84,31 @@ class TestObtenerPrecio:
         with pytest.raises(ValueError, match="Ticker inválido"):
             market.obtener_precio("MALA.MX")
 
+    def test_sic_sin_mx_aplica_tipo_cambio(self):
+        mock_hist = pd.DataFrame({"Close": [150.0]})
+        mock_ticker = MagicMock()
+        mock_ticker.history.return_value = mock_hist
+
+        # Mock _obtener_tipo_cambio para que devuelva 20.0
+        with patch.object(market.yf, "Ticker", return_value=mock_ticker):
+            with patch.object(market, "_obtener_tipo_cambio", return_value=20.0):
+                precio = market.obtener_precio("AAPL")
+
+        # 150 USD * 20 = 3000 MXN
+        assert precio == 3000.0
+
+    def test_nacional_con_mx_no_aplica_tipo_cambio(self):
+        mock_hist = pd.DataFrame({"Close": [150.0]})
+        mock_ticker = MagicMock()
+        mock_ticker.history.return_value = mock_hist
+
+        with patch.object(market.yf, "Ticker", return_value=mock_ticker):
+            with patch.object(market, "_obtener_tipo_cambio", return_value=20.0):
+                precio = market.obtener_precio("FMTY14.MX")
+
+        # 150 MXN, sin conversion
+        assert precio == 150.0
+
 
 # ============= obtener_multiples_precios =============
 
@@ -103,6 +132,21 @@ class TestObtenerMultiplesPrecios:
 
         assert result.get("A.MX") == 100.0
         assert result.get("B.MX") == 200.0
+
+    def test_batch_con_sic_aplica_tipo_cambio(self):
+        idx = pd.to_datetime(["2026-07-08"])
+        arrays = [["Close", "Close"], ["A.MX", "AAPL"]]
+        tuples = list(zip(*arrays))
+        index = pd.MultiIndex.from_tuples(tuples, names=["Price", "Ticker"])
+        data = [[100.0, 150.0]]
+        mock_df = pd.DataFrame(data, index=idx, columns=index)
+
+        with patch.object(market.yf, "download", return_value=mock_df):
+            with patch.object(market, "_obtener_tipo_cambio", return_value=20.0):
+                result = market.obtener_multiples_precios(["A.MX", "AAPL"])
+
+        assert result.get("A.MX") == 100.0  # MXN, sin cambio
+        assert result.get("AAPL") == 3000.0  # 150 USD * 20
 
     def test_fallback_individual_cuando_batch_falla(self):
         mock_hist = pd.DataFrame({"Close": [150.0]})
@@ -216,3 +260,20 @@ class TestObtenerHistorial:
     def test_historial_ticker_invalido_devuelve_vacio(self):
         market.excluir_ticker("MALA.MX")
         assert market.obtener_historial("MALA.MX") == []
+
+    def test_historial_sic_aplica_tipo_cambio(self):
+        idx = pd.to_datetime(["2026-07-07", "2026-07-08"])
+        mock_hist = pd.DataFrame({
+            "Close": [100.0, 101.0],
+            "Volume": [1000, 1100],
+        }, index=idx)
+        mock_ticker = MagicMock()
+        mock_ticker.history.return_value = mock_hist
+
+        with patch.object(market.yf, "Ticker", return_value=mock_ticker):
+            with patch.object(market, "_obtener_tipo_cambio", return_value=20.0):
+                historial = market.obtener_historial("AAPL", periodo="5d")
+
+        assert len(historial) == 2
+        assert historial[0]["close"] == 2000.0  # 100 USD * 20
+        assert historial[1]["close"] == 2020.0  # 101 USD * 20
