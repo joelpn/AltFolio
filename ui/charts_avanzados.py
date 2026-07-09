@@ -226,22 +226,26 @@ def build_pnl_chart(rendimientos: list[dict]) -> ft.Image:
     return ft.Image(src_base64=_fig_a_image(fig), fit=ft.ImageFit.CONTAIN)
 
 
-def build_candlestick(ticker: str) -> ft.Image | ft.Container:
+def build_candlestick(ticker: str, posiciones: dict | None = None) -> ft.Image | ft.Container:
     import logging
     import warnings
     warnings.filterwarnings("ignore", message=".*possibly delisted.*")
     logging.getLogger("yfinance").setLevel(logging.ERROR)
     logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
     try:
+        yahoo_ticker = ticker
+        if posiciones and ticker in posiciones:
+            yahoo_ticker = posiciones[ticker].get("ticker_yahoo") or ticker
+
         from core.market import TICKERS_INVALIDOS
-        if ticker in TICKERS_INVALIDOS:
+        if yahoo_ticker in TICKERS_INVALIDOS:
             return ft.Container(
                 ft.Text(f"Ticker no disponible: {ticker}", color=ft.colors.GREY_400),
                 padding=20,
             )
         import yfinance as yf
         from core.market import _call_silent
-        df = _call_silent(yf.download, ticker, period="6mo", interval="1d", progress=False)
+        df = _call_silent(yf.download, yahoo_ticker, period="6mo", interval="1d", progress=False)
         if df.empty:
             return ft.Container(
                 ft.Text(f"Sin datos OHLC para {ticker}", color=ft.colors.GREY_400),

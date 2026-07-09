@@ -570,7 +570,7 @@ class Dashboard:
                 self.selected_ticker_velas = t
                 if self.chart_type == "Velas":
                     from ui.charts_avanzados import build_candlestick
-                    self.chart_container.content = build_candlestick(t)
+                    self.chart_container.content = build_candlestick(t, posiciones)
                     self.chart_container.update()
                     self.page.update()
 
@@ -637,7 +637,7 @@ class Dashboard:
         elif t == "Velas":
             from ui.charts_avanzados import build_candlestick
             ticker = self.selected_ticker_velas or (list(posiciones.keys()) + [""])[0]
-            self.chart_container.content = build_candlestick(ticker)
+            self.chart_container.content = build_candlestick(ticker, posiciones)
         else:
             self.chart_container.content = build_pie_chart(posiciones, precios)
         self.chart_container.update()
