@@ -6,7 +6,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-import mplfinance as mpf
 import squarify
 import flet as ft
 
@@ -224,76 +223,6 @@ def build_pnl_chart(rendimientos: list[dict]) -> ft.Image:
 
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
     return ft.Image(src_base64=_fig_a_image(fig), fit=ft.ImageFit.CONTAIN)
-
-
-def build_candlestick(ticker: str, posiciones: dict | None = None) -> ft.Image | ft.Container:
-    import logging
-    import warnings
-    warnings.filterwarnings("ignore", message=".*possibly delisted.*")
-    logging.getLogger("yfinance").setLevel(logging.ERROR)
-    logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
-    try:
-        yahoo_ticker = ticker
-        if posiciones and ticker in posiciones:
-            yahoo_ticker = posiciones[ticker].get("ticker_yahoo") or ticker
-
-        from core.market import TICKERS_INVALIDOS
-        if yahoo_ticker in TICKERS_INVALIDOS:
-            return ft.Container(
-                ft.Text(f"Ticker no disponible: {ticker}", color=ft.colors.GREY_400),
-                padding=20,
-            )
-        import yfinance as yf
-        from core.market import _call_silent
-        df = _call_silent(yf.download, yahoo_ticker, period="6mo", interval="1d", progress=False)
-        if df.empty:
-            return ft.Container(
-                ft.Text(f"Sin datos OHLC para {ticker}", color=ft.colors.GREY_400),
-                padding=20,
-            )
-        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-        df = df.rename(columns={
-            "Open": "Open", "High": "High", "Low": "Low",
-            "Close": "Close", "Volume": "Volume",
-        })
-
-        mc = mpf.make_marketcolors(
-            up="#3FB950", down="#F85149",
-            edge={"up": "#3FB950", "down": "#F85149"},
-            wick={"up": "#3FB950", "down": "#F85149"},
-            volume={"up": "#3FB950", "down": "#F85149"},
-        )
-        s = mpf.make_mpf_style(
-            marketcolors=mc,
-            facecolor=FONDO_AX,
-            edgecolor="#30363D",
-            figcolor=FONDO,
-            gridstyle="",
-            gridcolor="#21262D",
-        )
-        fig, axlist = mpf.plot(
-            df, type="candle", style=s,
-            volume=False, returnfig=True,
-            figsize=(7, 4.2),
-            ylabel="Precio (MXN)",
-            title=f"{ticker}",
-            tight_layout=True,
-        )
-        ax = axlist[0]
-
-        fig.patch.set_facecolor(FONDO)
-        ax.set_facecolor(FONDO_AX)
-        ax.tick_params(colors=TEXTO_SEC, labelsize=8)
-        ax.yaxis.label.set_color(TEXTO_SEC)
-        ax.yaxis.label.set_size(9)
-        ax.set_title(ticker, color=TEXTO, fontsize=11)
-
-        return ft.Image(src_base64=_fig_a_image(fig), fit=ft.ImageFit.CONTAIN)
-    except Exception as ex:
-        return ft.Container(
-            ft.Text(f"Error: {ex}", color="#F85149", size=12),
-            padding=20,
-        )
 
 
 def build_time_selector(valor_actual: str, on_change) -> ft.Row:

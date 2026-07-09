@@ -68,7 +68,6 @@ class Dashboard:
                 ft.dropdown.Option("Pastel"),
                 ft.dropdown.Option("Barras"),
                 ft.dropdown.Option("Treemap"),
-                ft.dropdown.Option("Velas"),
             ],
             value="Pastel",
             width=160,
@@ -80,7 +79,6 @@ class Dashboard:
         )
         self.chart_container = ft.Container(content=ft.Text("...", color=TEXTO_SEC), expand=True)
         self.kpi_container = ft.Column(visible=True, spacing=4)
-        self.selected_ticker_velas = None
         self.modo_grafica = "linea"
         self.rango_tiempo = "1A"
         self.subvista_patrimonio = "Evolucion"
@@ -242,10 +240,6 @@ class Dashboard:
 
     def on_chart_type_change(self, e):
         self.chart_type = e.control.value
-        if self.chart_type == "Velas" and not self.selected_ticker_velas:
-            tickers = list(self.sim.posiciones.keys())
-            if tickers:
-                self.selected_ticker_velas = tickers[0]
         self.refresh_ui()
         self.page.update()
 
@@ -566,14 +560,6 @@ class Dashboard:
             precio_str = f"${precio_live:.2f}" if precio_live else f"${precio_prom:.2f} prom"
             pnl_color_str = pnl_color
 
-            def on_card_click(e, t=ticker):
-                self.selected_ticker_velas = t
-                if self.chart_type == "Velas":
-                    from ui.charts_avanzados import build_candlestick
-                    self.chart_container.content = build_candlestick(t, posiciones)
-                    self.chart_container.update()
-                    self.page.update()
-
             card = ft.Container(
                 content=ft.Column([
                     ft.Row([
@@ -608,7 +594,6 @@ class Dashboard:
                 bgcolor="#1C2430" if historico else CARD_BG,
                 border_radius=6,
                 border=ft.border.all(1, "#D29922" if historico else CARD_BORDER),
-                on_click=on_card_click,
             )
             cards.append(card)
 
@@ -634,10 +619,6 @@ class Dashboard:
         elif t == "Treemap":
             from ui.charts_avanzados import build_treemap
             self.chart_container.content = build_treemap(posiciones, precios)
-        elif t == "Velas":
-            from ui.charts_avanzados import build_candlestick
-            ticker = self.selected_ticker_velas or (list(posiciones.keys()) + [""])[0]
-            self.chart_container.content = build_candlestick(ticker, posiciones)
         else:
             self.chart_container.content = build_pie_chart(posiciones, precios)
         self.chart_container.update()
